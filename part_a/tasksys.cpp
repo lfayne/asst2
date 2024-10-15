@@ -1,4 +1,5 @@
 #include "tasksys.h"
+#include <iostream>
 
 
 IRunnable::~IRunnable() {}
@@ -110,27 +111,26 @@ const char* TaskSystemParallelThreadPoolSpinning::name() {
     return "Parallel + Thread Pool + Spin";
 }
 
-void threadSpin(bool* done, std::queue<Work>* work, std::mutex* m) {
-    while((!*done) && !(work->empty())) {
+void threadSpin(std::queue<Work>* work, std::mutex* work_m, std::mutex* tasks_done_m, int* tasks_done, bool* delete_threads) {
+    while(true) {
+        std::unique_lock<std::mutex> work_lock(*work_m);
         if (!(work->empty())) {
-            std::unique_lock<std::mutex> lock(*m);
-
             Work task = work->front();
             work->pop();
-
-            std::unique_lock<std::mutex> unlock(*m);
+            work_lock.unlock();
 
             task.runnable->runTask(task.task_num, task.num_total_tasks);
+
+            std::unique_lock<std::mutex> tasks_done_lock(*tasks_done_m);
+            *tasks_done += 1;
+            tasks_done_lock.unlock();
+        } else {
+            work_lock.unlock();
         }
-    }
-}
 
-void TaskSystemParallelThreadPoolSpinning::LaunchThreads() {
-    this->done = false;
-    this->threads.clear();
-
-    for (int i=0; i<this->num_threads; i++) {
-        this->threads.push_back(std::thread(threadSpin, &this->done, &this->work_queue, &this->m));
+        if (*delete_threads) {
+            return;
+        }
     }
 }
 
@@ -142,39 +142,45 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     // (requiring changes to tasksys.h).
     //
     this->num_threads = num_threads;
+    this->threads = new std::thread[num_threads]();
+
+    for (int i=0; i < this->num_threads; i++) {
+        this->threads[i] = std::thread(threadSpin, &this->work_queue, &this->work_m, &this->tasks_done_m, &this->tasks_done, &this->delete_threads);
+    }
 }
 
-TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {}
+TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+    delete_threads = true;
+    for (int i = 0; i < this->num_threads; i++) {
+        threads[i].join();
+    }
+    delete[] threads;
+}
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
-
-
     //
     // TODO: CS149 students will modify the implementation of this
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-    this->LaunchThreads();
-
+    this->tasks_done = 0;
+    std::unique_lock<std::mutex> work_lock(this->work_m);
     for (int i = 0; i < num_total_tasks; i++) {
-        this->work_queue.push((Work){runnable, i, num_total_tasks});
-        // runnable->runTask(i, num_total_tasks);
+        Work work;
+        work.runnable = runnable;
+        work.num_total_tasks = num_total_tasks;
+        work.task_num = i;
+        this->work_queue.push(work);
     }
+    work_lock.unlock();
 
-    while (!(this->work_queue.empty())) {
-        std::unique_lock<std::mutex> lock(this->m);
-
-        Work task = this->work_queue.front();
-        this->work_queue.pop();
-
-        std::unique_lock<std::mutex> unlock(this->m);
-
-        task.runnable->runTask(task.task_num, task.num_total_tasks);
-    }
-
-    this->done = true;
-    for (auto &thread : this->threads) {
-        thread.join();
+    while (true) {
+        std::unique_lock<std::mutex> tasks_done_lock(this->tasks_done_m);
+        if (this->tasks_done == num_total_tasks) {
+            tasks_done_lock.unlock();
+            break;
+        };
+        tasks_done_lock.unlock();
     }
 }
 
