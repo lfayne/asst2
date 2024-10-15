@@ -1,5 +1,4 @@
 #include "tasksys.h"
-#include "thread"
 
 
 IRunnable::~IRunnable() {}
@@ -111,6 +110,30 @@ const char* TaskSystemParallelThreadPoolSpinning::name() {
     return "Parallel + Thread Pool + Spin";
 }
 
+void threadSpin(bool* done, std::queue<Work>* work, std::mutex* m) {
+    while((!*done) && !(work->empty())) {
+        if (!(work->empty())) {
+            std::unique_lock<std::mutex> lock(*m);
+
+            Work task = work->front();
+            work->pop();
+
+            std::unique_lock<std::mutex> unlock(*m);
+
+            task.runnable->runTask(task.task_num, task.num_total_tasks);
+        }
+    }
+}
+
+void TaskSystemParallelThreadPoolSpinning::LaunchThreads() {
+    this->done = false;
+    this->threads.clear();
+
+    for (int i=0; i<this->num_threads; i++) {
+        this->threads.push_back(std::thread(threadSpin, &this->done, &this->work_queue, &this->m));
+    }
+}
+
 TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads) {
     //
     // TODO: CS149 student implementations may decide to perform setup
@@ -118,6 +141,7 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    this->num_threads = num_threads;
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {}
@@ -130,9 +154,27 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
+    this->LaunchThreads();
 
     for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+        this->work_queue.push((Work){runnable, i, num_total_tasks});
+        // runnable->runTask(i, num_total_tasks);
+    }
+
+    while (!(this->work_queue.empty())) {
+        std::unique_lock<std::mutex> lock(this->m);
+
+        Work task = this->work_queue.front();
+        this->work_queue.pop();
+
+        std::unique_lock<std::mutex> unlock(this->m);
+
+        task.runnable->runTask(task.task_num, task.num_total_tasks);
+    }
+
+    this->done = true;
+    for (auto &thread : this->threads) {
+        thread.join();
     }
 }
 
