@@ -1,4 +1,5 @@
 #include "tasksys.h"
+#include "thread"
 
 
 IRunnable::~IRunnable() {}
@@ -55,9 +56,16 @@ TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): ITaskSystem(n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    this->num_threads = num_threads;
 }
 
 TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {}
+
+void threadWorkerRun(IRunnable* runnable, int num_total_tasks, int num_work, int work_indexes[]) {
+    for (int i = 0; i < num_work; i++) {
+        runnable->runTask(work_indexes[i], num_total_tasks);
+    }
+}
 
 void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
 
@@ -68,8 +76,21 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+    std::thread threads[this->num_threads];
+    int threads_running = std::min(this->num_threads, num_total_tasks);
+    for (int i = 0; i < threads_running; i++) {
+        // threads[i] = std::thread(&IRunnable::runTask, runnable, i, num_total_tasks);
+        int num_work;
+        if (i == threads_running - 1) {
+            num_work = num_total_tasks - i * int(num_total_tasks / threads_running);
+        } else {
+            num_work = num_total_tasks / threads_running;
+        }
+        threads[i] = std::thread(threadWorkerRun, runnable, num_total_tasks, num_work, 1);
+    }
+
+    for (int i = 0; i < threads_running; i++) {
+        threads[i].join();
     }
 }
 
