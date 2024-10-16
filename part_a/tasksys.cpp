@@ -212,6 +212,10 @@ void threadSpinSleep(
 ) {
     while(true) {
         std::unique_lock<std::mutex> work_lock(*work_m);
+        queue_cv->wait(
+            work_lock,
+            [delete_threads, work] { return *delete_threads || !work->empty(); }
+        );
 
         if (!(work->empty())) {
             Work task = work->front();
@@ -224,11 +228,8 @@ void threadSpinSleep(
             *tasks_done += 1;
             tasks_done_lock.unlock();
             done_cv->notify_one();
-        } else {
-            queue_cv->wait(work_lock);
-            if (*delete_threads) {
+        } else if (*delete_threads) {
                 return;
-            }
         }
     }
 }
