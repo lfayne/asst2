@@ -143,10 +143,12 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     //
     this->num_threads = num_threads;
     this->threads = new std::thread[num_threads]();
+    this->delete_threads = false;
 
     for (int i=0; i < this->num_threads; i++) {
         this->threads[i] = std::thread(threadSpin, &this->work_queue, &this->work_m, &this->tasks_done_m, &this->tasks_done, &this->delete_threads);
     }
+
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
