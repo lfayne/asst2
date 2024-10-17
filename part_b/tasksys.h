@@ -6,6 +6,8 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <set>
+#include <map>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -62,6 +64,15 @@ struct Work
   IRunnable* runnable;
   int task_num;
   int num_total_tasks;
+  TaskID id;
+};
+
+struct BulkWork
+{
+  IRunnable* runnable;
+  int tasks_done;
+  int num_total_tasks;
+  std::vector<TaskID> deps;
 };
 
 /*
@@ -83,11 +94,12 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::thread* threads;
         std::queue<Work> work_queue;
         std::mutex work_m;
-        std::mutex tasks_done_m;
+        std::mutex tasks_m;
         std::condition_variable queue_cv;
         std::condition_variable done_cv;
-        int tasks_done = 0;
         bool delete_threads;
+        std::set<TaskID> deps_done;
+        std::map<TaskID, BulkWork> task_map;
 };
 
 #endif

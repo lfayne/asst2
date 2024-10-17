@@ -229,7 +229,7 @@ void threadSpinSleep(
             tasks_done_lock.unlock();
             done_cv->notify_one();
         } else if (*delete_threads) {
-                return;
+            return;
         }
     }
 }
