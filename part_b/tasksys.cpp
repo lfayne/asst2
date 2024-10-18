@@ -148,20 +148,27 @@ void threadSpinSleep(
 
             std::unique_lock<std::mutex> task_lock(*task_m);
             bulk_launch_map->at(task.id).tasks_done++;
+
+            if (bulk_launch_map->at(task.id).tasks_done == bulk_launch_map->at(task.id).num_total_tasks) {
+                bulk_launch_map->erase(task.id);
+
+                if (work_queue->empty() && bulk_launch_map->empty()) {
+                    done_cv->notify_one();
+                }
+            }
             std::cout << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
             task_lock.unlock();
-            done_cv->notify_one();
         } else if (!bulk_launch_map->empty()) {
             work_lock.unlock();
             std::unique_lock<std::mutex> task_lock(*task_m);
             auto iter = bulk_launch_map->begin();
 
             while (iter != bulk_launch_map->end()) { 
-                if (iter->second.tasks_done == iter->second.num_total_tasks) {
-                    std::cout << "HELLOOOOOOOOO\n" << std::flush;
-                    bulk_launch_map->at(555);
-                    iter = bulk_launch_map->erase(iter);
-                } else {
+                // if (iter->second.tasks_done == iter->second.num_total_tasks) {
+                //     std::cout << "HELLOOOOOOOOO\n" << std::flush;
+                //     bulk_launch_map->at(555);
+                //     iter = bulk_launch_map->erase(iter);
+                // } else {
                     bool add = true;
                     for (TaskID dep : iter->second.deps) {
                         if (bulk_launch_map->count(dep) || iter->second.working) {
@@ -181,10 +188,9 @@ void threadSpinSleep(
                     }
 
                     iter++;
-                }
+                //}
             }
-        }
-        else if (*stop_threads) {
+        } else if (*stop_threads) {
             return;
         }
     }
