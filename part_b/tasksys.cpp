@@ -156,7 +156,7 @@ void threadSpinSleep(
                     done_cv->notify_one();
                 }
             }
-            std::cout << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
+            //std::cout << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
             task_lock.unlock();
         } else if (!bulk_launch_map->empty()) {
             work_lock.unlock();
@@ -164,31 +164,24 @@ void threadSpinSleep(
             auto iter = bulk_launch_map->begin();
 
             while (iter != bulk_launch_map->end()) { 
-                // if (iter->second.tasks_done == iter->second.num_total_tasks) {
-                //     std::cout << "HELLOOOOOOOOO\n" << std::flush;
-                //     bulk_launch_map->at(555);
-                //     iter = bulk_launch_map->erase(iter);
-                // } else {
-                    bool add = true;
-                    for (TaskID dep : iter->second.deps) {
-                        if (bulk_launch_map->count(dep) || iter->second.working) {
-                            add = false;
-                            break;
-                        }
+                bool add = true;
+                for (TaskID dep : iter->second.deps) {
+                    if (bulk_launch_map->count(dep)) {
+                        add = false;
+                        break;
                     }
+                }
 
-                    if (add) {
-                        bulk_launch_map->at(iter->first).working = true;
-                        work_lock.lock();
-                        for (int i=0; i<iter->second.num_total_tasks; i++) {
-                            work_queue->push((Work) {iter->second.runnable, i, iter->second.num_total_tasks});
-                        }
-                        work_lock.unlock();
-                        queue_cv->notify_all();
+                if (add) {
+                    work_lock.lock();
+                    for (int i=0; i<iter->second.num_total_tasks; i++) {
+                        work_queue->push((Work) {iter->second.runnable, i, iter->second.num_total_tasks});
                     }
+                    work_lock.unlock();
+                    queue_cv->notify_all();
+                }
 
-                    iter++;
-                //}
+                iter++;
             }
         } else if (*stop_threads) {
             return;
