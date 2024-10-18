@@ -2,6 +2,7 @@
 #define _TASKSYS_H
 
 #include "itasksys.h"
+#include <iostream>
 #include <thread>
 #include <queue>
 #include <mutex>
@@ -73,6 +74,7 @@ struct BulkWork
   int tasks_done;
   int num_total_tasks;
   std::vector<TaskID> deps;
+  bool working;
 };
 
 /*
