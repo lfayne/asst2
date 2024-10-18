@@ -147,7 +147,9 @@ void threadSpinSleep(
             task.runnable->runTask(task.task_num, task.num_total_tasks);
 
             std::unique_lock<std::mutex> task_lock(*task_m);
+            std::cout << work_queue->size() << " " << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
             bulk_launch_map->at(task.id).tasks_done++;
+            //std::cout << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
 
             if (bulk_launch_map->at(task.id).tasks_done == bulk_launch_map->at(task.id).num_total_tasks) {
                 bulk_launch_map->erase(task.id);
@@ -156,10 +158,9 @@ void threadSpinSleep(
                     done_cv->notify_one();
                 }
             }
-            //std::cout << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
             task_lock.unlock();
         } else if (!bulk_launch_map->empty()) {
-            work_lock.unlock();
+            // work_lock.unlock();
             std::unique_lock<std::mutex> task_lock(*task_m);
             auto iter = bulk_launch_map->begin();
 
@@ -173,9 +174,14 @@ void threadSpinSleep(
                 }
 
                 if (add) {
-                    work_lock.lock();
+                    //work_lock.lock();
                     for (int i=0; i<iter->second.num_total_tasks; i++) {
-                        work_queue->push((Work) {iter->second.runnable, i, iter->second.num_total_tasks});
+                        Work task;
+                        task.runnable = iter->second.runnable;
+                        task.task_num = i;
+                        task.num_total_tasks = iter->second.num_total_tasks;
+                        task.id = iter->first;
+                        work_queue->push(task);
                     }
                     work_lock.unlock();
                     queue_cv->notify_all();
