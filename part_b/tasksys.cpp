@@ -127,16 +127,16 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 }
 
 void threadSpinSleep(
-    std::queue<Work>* work, std::map<TaskID, BulkWork>* tasks,
-    std::mutex* work_m, std::mutex* tasks_m,
+    std::queue<Work>* work, std::map<TaskID, BulkWork>* tasks, std::set<TaskID>* deps_done,
+    std::mutex* work_m, std::mutex* task_m,
     std::condition_variable* queue_cv, std::condition_variable* done_cv,
-    bool* delete_threads
+    bool* stop_threads
 ) {
     while(true) {
         std::unique_lock<std::mutex> work_lock(*work_m);
         queue_cv->wait(
             work_lock,
-            [delete_threads, work, tasks] { return *delete_threads || !work->empty() || !tasks->empty(); }
+            [stop_threads, work, tasks] { return *stop_threads || !work->empty() || !tasks->empty(); }
         );
 
         if (!work->empty()) {
@@ -146,14 +146,41 @@ void threadSpinSleep(
 
             task.runnable->runTask(task.task_num, task.num_total_tasks);
 
-            std::unique_lock<std::mutex> tasks_done_lock(*tasks_m);
-            tasks[task.id]->tasks_done++;
-            tasks_done_lock.unlock();
+            std::unique_lock<std::mutex> task_lock(*task_m);
+            tasks->at(task.id).tasks_done++;
+            task_lock.unlock();
             done_cv->notify_one();
         } else if (!tasks->empty()) {
+            work_lock.unlock();
+            std::unique_lock<std::mutex> task_lock(*task_m);
+            auto iter = tasks->begin();
 
+            while (iter != tasks->end()) { 
+                if (iter->second.tasks_done == iter->second.num_total_tasks) { 
+                    iter = tasks->erase(iter);  
+                } else {
+                    bool add = true;
+                    for (TaskID dep : iter->second.deps) {
+                        if (!deps_done->count(dep)) {
+                            add = false;
+                            break;
+                        }
+                    }
+
+                    if (add) {
+                        work_lock.lock();
+                        for (int i=0; i<iter->second.num_total_tasks; i++) {
+                            work->push((Work) {iter->second.runnable, i, iter->second.num_total_tasks});
+                        }
+                        work_lock.unlock();
+                        queue_cv->notify_all();
+                    }
+
+                    iter++;
+                }
+            }
         }
-        else if (*delete_threads) {
+        else if (*stop_threads) {
             return;
         }
     }
@@ -162,20 +189,20 @@ void threadSpinSleep(
 TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
     this->num_threads = num_threads;
     this->threads = new std::thread[num_threads]();
-    this->delete_threads = false;
+    this->stop_threads = false;
 
     for (int i=0; i < this->num_threads; i++) {
         this->threads[i] = std::thread(
             threadSpinSleep,
-            &this->work_queue, &this->task_map,
-            &this->work_m, &this->tasks_m,
+            &this->work_queue, &this->task_map, &this->deps_done,
+            &this->work_m, &this->task_m,
             &this->queue_cv, &this->done_cv,
-            &this->delete_threads);
+            &this->stop_threads);
     }
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
-    delete_threads = true;
+    stop_threads = true;
     queue_cv.notify_all();
     for (int i = 0; i < this->num_threads; i++) {
         threads[i].join();
@@ -184,25 +211,9 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
-    // this->tasks_done = 0;
-    // std::unique_lock<std::mutex> work_lock(this->work_m);
-    // for (int i = 0; i < num_total_tasks; i++) {
-    //     Work work;
-    //     work.runnable = runnable;
-    //     work.num_total_tasks = num_total_tasks;
-    //     work.task_num = i;
-    //     this->work_queue.push(work);
-    // }
-    // work_lock.unlock();
-    // this->queue_cv.notify_all();
-
-    // std::unique_lock<std::mutex> tasks_done_lock(this->tasks_done_m);
-    // this->done_cv.wait(
-    //     tasks_done_lock,
-    //     [this, num_total_tasks] {
-    //         return this->tasks_done == num_total_tasks;
-    //     }
-    // );
+    std::vector<TaskID> no_deps;
+    runAsyncWithDeps(runnable, num_total_tasks, no_deps);
+    sync();
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -216,19 +227,22 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     TaskID id = *deps_done.rbegin();
     BulkWork work = {runnable, 0, num_total_tasks, deps};
 
-    std::unique_lock<std::mutex> work_lock(this->work_m);
+    std::unique_lock<std::mutex> task_lock(this->task_m);
     task_map.insert({id, work});
-    work_lock.unlock();
+    task_lock.unlock();
     this->queue_cv.notify_all();
 
     return id;
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
-
-    //
-    // TODO: CS149 students will modify the implementation of this method in Part B.
-    //
+    std::unique_lock<std::mutex> tasks_lock(this->task_m);
+    this->done_cv.wait(
+        tasks_lock,
+        [this] {
+            return this->task_map.empty() && this->work_queue.empty();
+        }
+    );
 
     return;
 }
