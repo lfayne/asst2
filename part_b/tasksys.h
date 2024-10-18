@@ -68,7 +68,7 @@ struct Work
   TaskID id;
 };
 
-struct BulkWork
+struct BulkLaunch
 {
   IRunnable* runnable;
   int tasks_done;
@@ -100,8 +100,8 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::condition_variable queue_cv;
         std::condition_variable done_cv;
         bool stop_threads;
-        std::set<TaskID> deps_done;
-        std::map<TaskID, BulkWork> task_map;
+        TaskID bulk_launch_count=0;
+        std::map<TaskID, BulkLaunch> bulk_launch_map;
 };
 
 #endif
