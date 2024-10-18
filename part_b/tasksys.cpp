@@ -147,7 +147,7 @@ void threadSpinSleep(
             task.runnable->runTask(task.task_num, task.num_total_tasks);
 
             std::unique_lock<std::mutex> task_lock(*task_m);
-            std::cout << work_queue->size() << " " << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
+            //std::cout << work_queue->size() << " " << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
             bulk_launch_map->at(task.id).tasks_done++;
             //std::cout << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
 
@@ -158,14 +158,15 @@ void threadSpinSleep(
                     done_cv->notify_one();
                 }
             }
-            task_lock.unlock();
+            // task_lock.unlock();
         } else if (!bulk_launch_map->empty()) {
-            // work_lock.unlock();
+            work_lock.unlock();
             std::unique_lock<std::mutex> task_lock(*task_m);
             auto iter = bulk_launch_map->begin();
 
             while (iter != bulk_launch_map->end()) { 
-                bool add = true;
+                // std::cout << << std::flush;
+                bool add = !iter->second.working;
                 for (TaskID dep : iter->second.deps) {
                     if (bulk_launch_map->count(dep)) {
                         add = false;
@@ -174,7 +175,7 @@ void threadSpinSleep(
                 }
 
                 if (add) {
-                    //work_lock.lock();
+                    work_lock.lock();
                     for (int i=0; i<iter->second.num_total_tasks; i++) {
                         Work task;
                         task.runnable = iter->second.runnable;
@@ -183,6 +184,7 @@ void threadSpinSleep(
                         task.id = iter->first;
                         work_queue->push(task);
                     }
+                    bulk_launch_map->at(iter->first).working = true;
                     work_lock.unlock();
                     queue_cv->notify_all();
                 }
@@ -239,7 +241,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     bulk_launch.working = false;
 
     bulk_launch_map.insert({id, bulk_launch});
-    std::cout << "BULK LAUNCH: " << id << ", TASKS: " << num_total_tasks << "\n" << std::flush;
+    //std::cout << "BULK LAUNCH: " << id << ", TASKS: " << num_total_tasks << "\n" << std::flush;
     task_lock.unlock();
     this->queue_cv.notify_all();
 
