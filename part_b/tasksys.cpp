@@ -127,8 +127,8 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 }
 
 void threadSpinSleep(
-    std::queue<Work>* work_queue, std::map<TaskID, BulkLaunch>* bulk_launch_map,
-    std::mutex* work_m, std::mutex* task_m,
+    std::queue<Work>* work_queue, std::map<TaskID, BulkLaunch>* bulk_launch_map, std::map<TaskID, BulkLaunch>* bulk_launch_running_map,
+    std::mutex* work_m, std::mutex* map_m, std::mutex* running_map_m,
     std::condition_variable* queue_cv, std::condition_variable* done_cv,
     bool* stop_threads
 ) {
@@ -146,50 +146,59 @@ void threadSpinSleep(
 
             task.runnable->runTask(task.task_num, task.num_total_tasks);
 
-            std::unique_lock<std::mutex> task_lock(*task_m);
-            //std::cout << work_queue->size() << " " << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
-            bulk_launch_map->at(task.id).tasks_done++;
-            //std::cout << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
+            std::unique_lock<std::mutex> running_map_lock(*running_map_m);
+            // std::cout << work_queue->size() << " " << task.id << " " <<  task.task_num << " " << bulk_launch_map->at(task.id).tasks_done << "\n" << std::flush;
+            bulk_launch_running_map->at(task.id).tasks_done++;
 
-            if (bulk_launch_map->at(task.id).tasks_done == bulk_launch_map->at(task.id).num_total_tasks) {
-                bulk_launch_map->erase(task.id);
+            if (bulk_launch_running_map->at(task.id).tasks_done == bulk_launch_running_map->at(task.id).num_total_tasks) {
+                bulk_launch_running_map->erase(task.id);
 
-                if (work_queue->empty() && bulk_launch_map->empty()) {
+                if (work_queue->empty() && bulk_launch_map->empty() && bulk_launch_running_map->empty()) {
                     done_cv->notify_one();
                 }
             }
+            queue_cv->notify_all();
             // task_lock.unlock();
         } else if (!bulk_launch_map->empty()) {
             work_lock.unlock();
-            std::unique_lock<std::mutex> task_lock(*task_m);
+            std::unique_lock<std::mutex> map_lock(*map_m);
             auto iter = bulk_launch_map->begin();
 
-            while (iter != bulk_launch_map->end()) { 
-                // std::cout << << std::flush;
+            while (iter != bulk_launch_map->end()) {
+                // std::cout << "BOOBOO\n" << std::flush;
                 bool add = !iter->second.working;
                 for (TaskID dep : iter->second.deps) {
-                    if (bulk_launch_map->count(dep)) {
+                    if (bulk_launch_map->count(dep) || bulk_launch_running_map->count(dep)) {
                         add = false;
                         break;
                     }
                 }
 
                 if (add) {
+                    TaskID id = iter->first;
+                    BulkLaunch launch = iter->second;
+                    std::unique_lock<std::mutex> running_map_lock(*running_map_m);
+                    bulk_launch_running_map->insert({id, launch});
+                    iter = bulk_launch_map->erase(iter);
+                    running_map_lock.unlock();
+
                     work_lock.lock();
-                    for (int i=0; i<iter->second.num_total_tasks; i++) {
+                    // std::cout << "POPULATING " << id  << "\n" << std::flush;
+                    for (int i=0; i<launch.num_total_tasks; i++) {
                         Work task;
-                        task.runnable = iter->second.runnable;
+                        task.runnable = launch.runnable;
                         task.task_num = i;
-                        task.num_total_tasks = iter->second.num_total_tasks;
-                        task.id = iter->first;
+                        task.num_total_tasks = launch.num_total_tasks;
+                        task.id = id;
                         work_queue->push(task);
                     }
-                    bulk_launch_map->at(iter->first).working = true;
+                    // bulk_launch_map->at(iter->first).working = true;
                     work_lock.unlock();
                     queue_cv->notify_all();
+                    //break;
+                } else {
+                    iter++;
                 }
-
-                iter++;
             }
         } else if (*stop_threads) {
             return;
@@ -205,8 +214,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     for (int i=0; i < this->num_threads; i++) {
         this->threads[i] = std::thread(
             threadSpinSleep,
-            &this->work_queue, &this->bulk_launch_map,
-            &this->work_m, &this->task_m,
+            &this->work_queue, &this->bulk_launch_map, &this->bulk_launch_running_map,
+            &this->work_m, &this->map_m, &this->running_map_m,
             &this->queue_cv, &this->done_cv,
             &this->stop_threads);
     }
@@ -229,7 +238,7 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                                     const std::vector<TaskID>& deps) {
-    std::unique_lock<std::mutex> task_lock(this->task_m);
+    std::unique_lock<std::mutex> map_lock(this->map_m);
     TaskID id = bulk_launch_count;
     bulk_launch_count++;
 
@@ -242,19 +251,19 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 
     bulk_launch_map.insert({id, bulk_launch});
     //std::cout << "BULK LAUNCH: " << id << ", TASKS: " << num_total_tasks << "\n" << std::flush;
-    task_lock.unlock();
+    map_lock.unlock();
     this->queue_cv.notify_all();
 
     return id;
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
-    std::unique_lock<std::mutex> tasks_lock(this->task_m);
+    std::unique_lock<std::mutex> running_map_lock(this->running_map_m);
 
     this->done_cv.wait(
-        tasks_lock,
+        running_map_lock,
         [this] {
-            return this->bulk_launch_map.empty() && this->work_queue.empty();
+            return this->bulk_launch_map.empty() && this->bulk_launch_running_map.empty() && this->work_queue.empty();
         }
     );
 

@@ -96,12 +96,14 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::thread* threads;
         std::queue<Work> work_queue;
         std::mutex work_m;
-        std::mutex task_m;
+        std::mutex map_m;
+        std::mutex running_map_m;
         std::condition_variable queue_cv;
         std::condition_variable done_cv;
         bool stop_threads;
         TaskID bulk_launch_count=0;
         std::map<TaskID, BulkLaunch> bulk_launch_map;
+        std::map<TaskID, BulkLaunch> bulk_launch_running_map;
 };
 
 #endif
