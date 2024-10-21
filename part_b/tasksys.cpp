@@ -251,8 +251,11 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
-    std::unique_lock<std::mutex> done_lock(done_m);
+    if ((bulk_launch_map.size() == launches_completed) && work_queue.empty()) {
+        return;
+    }
 
+    std::unique_lock<std::mutex> done_lock(done_m);
     done_cv.wait(
         done_lock,
         [this] {
