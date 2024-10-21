@@ -131,7 +131,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
         std::unique_lock<std::mutex> work_lock(work_m);
         queue_cv.wait(
             work_lock,
-            [this] { return stop_threads || !work_queue.empty() || !bulk_launch_map.empty(); }
+            [this] { return stop_threads || !work_queue.empty() || !(bulk_launch_map.size() == launches_completed); }
         );
 
         if (!work_queue.empty()) {
@@ -140,20 +140,16 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
             work_lock.unlock();
 
             task.runnable->runTask(task.task_num, task.num_total_tasks);
-
-            //std::cout << "lock thread spin\n" << std::flush;
+            
             std::unique_lock<std::mutex> launch_lock(*bulk_launch_map.at(task.id).m);
-            //std::cout << "second\n" << std::flush;
-            //std::cout << "tasks done thread spin\n" << std::flush;
             bulk_launch_map.at(task.id).tasks_done++;
 
-            //std::cout << "if statement thread spin\n" << std::flush;
             if (bulk_launch_map.at(task.id).tasks_done == bulk_launch_map.at(task.id).num_total_tasks) {
-                std::unique_lock<std::mutex> launch_map_lock(launch_m);
+                std::unique_lock<std::mutex> launches_completed_lock(completed_m);
+                launches_completed++;
+                launches_completed_lock.unlock();
 
-                //std::cout << "inside if thread spin\n" << std::flush;
                 for (TaskID dep : deps_map.at(task.id)) {
-                    //std::cout << "inside if and for thread spin\n" << std::flush;
                     BulkLaunch* new_launch = &bulk_launch_map.at(dep);
                     new_launch->deps.erase(task.id);
 
@@ -170,16 +166,10 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                         work_lock.unlock();
                     }
                 }
-
-                //delete bulk_launch_map.at(task.id).m;
-                bulk_launch_map.erase(task.id);
-                launch_map_lock.unlock();
-
-                if (work_queue.empty() && bulk_launch_map.empty()) {
+                if (work_queue.empty() && bulk_launch_map.size() == launches_completed) {
                     done_cv.notify_one();
                 }
             }
-            launch_lock.unlock();
             queue_cv.notify_all();
         } else if (stop_threads) {
             return;
@@ -215,11 +205,13 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                                     const std::vector<TaskID>& deps) {
-    std::unique_lock<std::mutex> map_lock(launch_m);
+    std::unique_lock<std::mutex> id_lock(id_m);
     TaskID id = bulk_launch_count;
     bulk_launch_count++;
+    id_lock.unlock();
 
     std::mutex* mutex = new std::mutex();
+    std::unique_lock<std::mutex> self_lock(*mutex);
 
     BulkLaunch bulk_launch;
     bulk_launch.runnable = runnable;
@@ -235,7 +227,6 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     }
     
     if (deps.empty()) {
-        map_lock.unlock();
         std::unique_lock<std::mutex> work_lock(work_m);
         for (int i=0; i<num_total_tasks; i++) {
             Work task;
@@ -251,24 +242,21 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
             if (!deps_map.count(dep)) {
                 deps_map.insert({dep, std::vector<TaskID>()});
             }
-            //std::cout << "runasync\n" << std::flush;
             deps_map.at(dep).push_back(id);
         }
-        map_lock.unlock();
     }
-    //std::cout << "BULK LAUNCH: " << id << ", TASKS: " << num_total_tasks << "\n" << std::flush;
     queue_cv.notify_all();
 
     return id;
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
-    std::unique_lock<std::mutex> launch_lock(launch_m);
+    std::unique_lock<std::mutex> done_lock(done_m);
 
     done_cv.wait(
-        launch_lock,
+        done_lock,
         [this] {
-            return bulk_launch_map.empty() && work_queue.empty();
+            return (bulk_launch_map.size() == launches_completed) && work_queue.empty();
         }
     );
 
