@@ -131,7 +131,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
         std::unique_lock<std::mutex> work_lock(work_m);
         queue_cv.wait(
             work_lock,
-            [this] { return stop_threads || !work_queue.empty() || !(bulk_launch_map.size() == launches_completed); }
+            [this] { return stop_threads || !work_queue.empty() || !(bulk_launch_count == launches_completed); }
         );
 
         if (!work_queue.empty()) {
@@ -140,16 +140,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
             work_lock.unlock();
 
             task.runnable->runTask(task.task_num, task.num_total_tasks);
-            
-            if (!bulk_launch_map.count(task.id)) {
-                std::cout << "task id\n" << std::flush;
-                usleep(100000);
-            }
             std::unique_lock<std::mutex> launch_lock(*bulk_launch_map.at(task.id).m);
-            if (!bulk_launch_map.count(task.id)) {
-                std::cout << "task id inside\n" << std::flush;
-                usleep(100000);
-            }
             bulk_launch_map.at(task.id).tasks_done++;
 
             if (bulk_launch_map.at(task.id).tasks_done == bulk_launch_map.at(task.id).num_total_tasks) {
@@ -231,18 +222,20 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     std::mutex* mutex = new std::mutex();
     std::unique_lock<std::mutex> self_lock(*mutex);
 
-    BulkLaunch bulk_launch;
-    bulk_launch.runnable = runnable;
-    bulk_launch.tasks_done = 0;
-    bulk_launch.num_total_tasks = num_total_tasks;
-    bulk_launch.deps = std::set<TaskID> (deps.begin(), deps.end());
-    bulk_launch.working = false;
-    bulk_launch.m = mutex;
+    BulkLaunch* bulk_launch_ptr = new BulkLaunch();
+    bulk_launch_ptr->runnable = runnable;
+    bulk_launch_ptr->tasks_done = 0;
+    bulk_launch_ptr->num_total_tasks = num_total_tasks;
+    bulk_launch_ptr->deps = std::set<TaskID> (deps.begin(), deps.end());
+    bulk_launch_ptr->working = false;
+    bulk_launch_ptr->m = mutex;
 
-    bulk_launch_map.insert({id, bulk_launch});
+    std::unique_lock<std::mutex> deps_lock(deps_m);
     if (!deps_map.count(id)) {
+        id_to_ptr.insert({id, bulk_launch_ptr});
         deps_map.insert({id, std::vector<TaskID>()});
     }
+    deps_lock.unlock();
     
     if (deps.empty()) {
         std::unique_lock<std::mutex> work_lock(work_m);
@@ -251,17 +244,19 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
             task.runnable = runnable;
             task.task_num = i;
             task.num_total_tasks = num_total_tasks;
-            task.id = id;
+            task.launch_ptr = bulk_launch_ptr;
             work_queue.push(task);
         }
         work_lock.unlock();
     } else {
+        deps_lock.lock();
         for (TaskID dep : deps) {
             if (!deps_map.count(dep)) {
                 deps_map.insert({dep, std::vector<TaskID>()});
             }
             deps_map.at(dep).push_back(id);
         }
+        deps_lock.unlock();
     }
     queue_cv.notify_all();
 
@@ -269,7 +264,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
-    if ((bulk_launch_map.size() == launches_completed) && work_queue.empty()) {
+    if ((bulk_launch_count == launches_completed) && work_queue.empty()) {
         return;
     }
 
@@ -277,7 +272,7 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     done_cv.wait(
         done_lock,
         [this] {
-            return (bulk_launch_map.size() == launches_completed) && work_queue.empty();
+            return (bulk_launch_count == launches_completed) && work_queue.empty();
         }
     );
 

@@ -66,7 +66,7 @@ struct Work
   IRunnable* runnable;
   int task_num;
   int num_total_tasks;
-  TaskID id;
+  BulkLaunch* launch_ptr;
 };
 
 struct BulkLaunch
@@ -104,9 +104,9 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::condition_variable done_cv;
         bool stop_threads;
         TaskID bulk_launch_count=0;
-        std::map<TaskID, BulkLaunch> bulk_launch_map;
         std::map<TaskID, std::vector<TaskID>> deps_map;
-
+        std::map<TaskID, BulkLaunch*> id_to_ptr;
+        std::mutex deps_m;
         std::mutex id_m;
         std::mutex done_m;
         std::mutex completed_m;
