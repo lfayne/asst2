@@ -73,8 +73,9 @@ struct BulkLaunch
   IRunnable* runnable;
   int tasks_done;
   int num_total_tasks;
-  std::vector<TaskID> deps;
+  std::set<TaskID> deps;
   bool working;
+  std::mutex* m;
 };
 
 /*
@@ -92,18 +93,19 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+        void threadSpinSleep();
+
         int num_threads;
         std::thread* threads;
         std::queue<Work> work_queue;
         std::mutex work_m;
-        std::mutex map_m;
-        std::mutex running_map_m;
+        std::mutex launch_m;
         std::condition_variable queue_cv;
         std::condition_variable done_cv;
         bool stop_threads;
         TaskID bulk_launch_count=0;
         std::map<TaskID, BulkLaunch> bulk_launch_map;
-        std::map<TaskID, BulkLaunch> bulk_launch_running_map;
+        std::map<TaskID, std::vector<TaskID>> deps_map;
 };
 
 #endif
