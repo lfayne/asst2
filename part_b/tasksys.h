@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <set>
 #include <map>
+#include <unistd.h>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
