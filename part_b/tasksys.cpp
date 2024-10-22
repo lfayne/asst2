@@ -168,9 +168,15 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                 }
                 deps_lock.unlock();
                 
+                std::unique_lock<std::mutex> id_lock(id_m);
+                work_lock.lock();
+                launches_completed_lock.lock();
                 if (work_queue.empty() && bulk_launch_count == launches_completed) {
                     done_cv.notify_one();
                 }
+                work_lock.unlock();
+                launches_completed_lock.unlock();
+                id_lock.unlock();
             }
             queue_cv.notify_all();
         } else if (stop_threads) {
@@ -258,15 +264,25 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
+    std::unique_lock<std::mutex> id_lock(id_m);
+    std::unique_lock<std::mutex> work_lock(work_m);
+    std::unique_lock<std::mutex> launches_completed_lock(completed_m);
     if ((bulk_launch_count == launches_completed) && work_queue.empty()) {
         return;
     }
+    id_lock.unlock();
+    work_lock.unlock();
+    launches_completed_lock.unlock();
 
     std::unique_lock<std::mutex> done_lock(done_m);
     done_cv.wait(
         done_lock,
         [this] {
-            return (bulk_launch_count == launches_completed) && work_queue.empty();
+            std::unique_lock<std::mutex> id_lock(id_m);
+            std::unique_lock<std::mutex> work_lock(work_m);
+            std::unique_lock<std::mutex> launches_completed_lock(completed_m);
+            bool result = (bulk_launch_count == launches_completed) && work_queue.empty();
+            return result;
         }
     );
 
