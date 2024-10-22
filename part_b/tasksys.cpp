@@ -197,6 +197,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
+    // TODO: Deallocate BulkLaunch objs.
     stop_threads = true;
     queue_cv.notify_all();
     for (int i = 0; i < this->num_threads; i++) {
