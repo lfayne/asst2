@@ -104,14 +104,14 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::condition_variable queue_cv;
         std::condition_variable done_cv;
         bool stop_threads;
-        TaskID bulk_launch_count=0;
+        std::atomic_int bulk_launch_count;
         std::map<TaskID, std::vector<TaskID>> deps_map;
         std::map<TaskID, BulkLaunch*> id_to_ptr;
         std::mutex deps_m;
         std::mutex id_m;
         std::mutex done_m;
         std::mutex completed_m;
-        int launches_completed=0;
+        std::atomic_int launches_completed;
 };
 
 #endif
