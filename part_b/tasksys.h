@@ -67,7 +67,7 @@ struct BulkLaunch {
   std::atomic_int tasks_done;
   int num_total_tasks;
   std::set<TaskID> deps;
-  bool working;
+  bool done = false;
   std::mutex m;
   TaskID id;
 };
