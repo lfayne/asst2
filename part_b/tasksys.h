@@ -110,7 +110,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::mutex id_m;
         std::mutex done_m;
         std::mutex completed_m;
-        long unsigned int launches_completed=0;
+        int launches_completed=0;
 };
 
 #endif
