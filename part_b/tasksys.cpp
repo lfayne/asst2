@@ -200,6 +200,9 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // TODO: Deallocate BulkLaunch objs.
     stop_threads = true;
     queue_cv.notify_all();
+    for (const auto& pair : id_to_ptr) {
+        delete pair.second;
+    }
     for (int i = 0; i < this->num_threads; i++) {
         threads[i].join();
     }
