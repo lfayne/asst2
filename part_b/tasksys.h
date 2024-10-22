@@ -10,6 +10,7 @@
 #include <set>
 #include <map>
 #include <unistd.h>
+#include <atomic>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -64,8 +65,8 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 
 struct BulkLaunch {
   IRunnable* runnable;
-  int tasks_done;
-  int num_total_tasks;
+  std::atomic_int tasks_done;
+  std::atomic_int num_total_tasks;
   std::set<TaskID> deps;
   bool working;
   std::mutex m;
