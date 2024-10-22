@@ -140,7 +140,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
             work_lock.unlock();
 
             task.runnable->runTask(task.task_num, task.num_total_tasks);
-            std::unique_lock<std::mutex> launch_lock(*task.launch_ptr->m);
+            std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
             task.launch_ptr->tasks_done++;
 
             if (task.launch_ptr->tasks_done == task.launch_ptr->num_total_tasks) {
@@ -219,16 +219,13 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     bulk_launch_count++;
     id_lock.unlock();
 
-    std::mutex* mutex = new std::mutex();
-    std::unique_lock<std::mutex> self_lock(*mutex);
-
     BulkLaunch* bulk_launch_ptr = new BulkLaunch();
+    std::unique_lock<std::mutex> self_lock(bulk_launch_ptr->m);
     bulk_launch_ptr->runnable = runnable;
     bulk_launch_ptr->tasks_done = 0;
     bulk_launch_ptr->num_total_tasks = num_total_tasks;
     bulk_launch_ptr->deps = std::set<TaskID> (deps.begin(), deps.end());
     bulk_launch_ptr->working = false;
-    bulk_launch_ptr->m = mutex;
     bulk_launch_ptr->id = id;
 
     std::unique_lock<std::mutex> deps_lock(deps_m);
