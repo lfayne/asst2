@@ -61,22 +61,22 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         void sync();
 };
 
-struct Work
-{
-  IRunnable* runnable;
-  int task_num;
-  int num_total_tasks;
-  BulkLaunch* launch_ptr;
-};
 
-struct BulkLaunch
-{
+struct BulkLaunch {
   IRunnable* runnable;
   int tasks_done;
   int num_total_tasks;
   std::set<TaskID> deps;
   bool working;
   std::mutex* m;
+  TaskID id;
+};
+
+struct Work {
+  IRunnable* runnable;
+  int task_num;
+  int num_total_tasks;
+  BulkLaunch* launch_ptr;
 };
 
 /*
