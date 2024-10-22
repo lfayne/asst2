@@ -71,6 +71,7 @@ struct BulkLaunch {
   bool working;
   std::mutex m;
   TaskID id;
+  std::condition_variable cv;
 };
 
 struct Work {

@@ -140,17 +140,22 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
             work_lock.unlock();
 
             task.runnable->runTask(task.task_num, task.num_total_tasks);
-            // std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
+            //std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
             task.launch_ptr->tasks_done++;
             //std::cout << task.launch_ptr->id << " " << task.launch_ptr->tasks_done << " " << task.launch_ptr->num_total_tasks << "\n" << std::flush;
 
-            if (task.launch_ptr->tasks_done == task.launch_ptr->num_total_tasks) {
-                std::cout << task.launch_ptr->id << "\n" << std::flush;
-                //std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
-                //std::unique_lock<std::mutex> launches_completed_lock(completed_m);
+            if (task.task_num + 1 == task.num_total_tasks) {
+                //std::cout << task.launch_ptr->id << "\n" << std::flush;
+                if (task.launch_ptr->tasks_done != task.launch_ptr->num_total_tasks) {
+                    //std::cout << task.launch_ptr->id << "\n" << std::flush;
+                    std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
+                    task.launch_ptr->cv.wait(
+                        launch_lock,
+                        [this, task] { return task.launch_ptr->tasks_done == task.launch_ptr->num_total_tasks;}
+                    );
+                }
+
                 launches_completed++;
-                std::cout << "happy\n" << std::flush;
-                //launches_completed_lock.unlock();
 
                 std::unique_lock<std::mutex> deps_lock(deps_m);
                 for (TaskID dep : deps_map.at(task.launch_ptr->id)) {
@@ -158,7 +163,6 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                     new_launch->deps.erase(task.launch_ptr->id);
 
                     if (new_launch->deps.empty()) {
-                        std::cout << new_launch->id << "\n" << std::flush;
                         work_lock.lock();
                         for (int i=0; i<new_launch->num_total_tasks; i++) {
                             Work task;
@@ -172,15 +176,49 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                     }
                 }
                 deps_lock.unlock();
-                
-                //std::unique_lock<std::mutex> id_lock(id_m);
-                //launches_completed_lock.lock();
+
                 if (bulk_launch_count == launches_completed) {
                     done_cv.notify_one();
                 }
-                //launches_completed_lock.unlock();
-                //id_lock.unlock();
-                std::cout << "sad\n" << std::flush;
+            } else if (task.launch_ptr->tasks_done == task.launch_ptr->num_total_tasks) {
+                std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
+                task.launch_ptr->cv.notify_one();
+                // //launch_lock.unlock();
+                // //std::cout << task.launch_ptr->id << "\n" << std::flush;
+                // //std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
+                // //std::unique_lock<std::mutex> launches_completed_lock(completed_m);
+                // launches_completed++;
+                // //std::cout << "happy\n" << std::flush;
+                // //launches_completed_lock.unlock();
+
+                // std::unique_lock<std::mutex> deps_lock(deps_m);
+                // for (TaskID dep : deps_map.at(task.launch_ptr->id)) {
+                //     BulkLaunch* new_launch = id_to_ptr[dep];
+                //     new_launch->deps.erase(task.launch_ptr->id);
+
+                //     if (new_launch->deps.empty()) {
+                //         //std::cout << new_launch->id << "\n" << std::flush;
+                //         work_lock.lock();
+                //         for (int i=0; i<new_launch->num_total_tasks; i++) {
+                //             Work task;
+                //             task.runnable = new_launch->runnable;
+                //             task.task_num = i;
+                //             task.num_total_tasks = new_launch->num_total_tasks;
+                //             task.launch_ptr = new_launch;
+                //             work_queue.push(task);
+                //         }
+                //         work_lock.unlock();
+                //     }
+                // }
+                // deps_lock.unlock();
+                
+                // //std::unique_lock<std::mutex> id_lock(id_m);
+                // //launches_completed_lock.lock();
+                // if (bulk_launch_count == launches_completed) {
+                //     done_cv.notify_one();
+                // }
+                // //launches_completed_lock.unlock();
+                // //id_lock.unlock();
             }
             queue_cv.notify_all();
         } else if (stop_threads) {
