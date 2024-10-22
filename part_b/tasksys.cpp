@@ -144,9 +144,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
             task.launch_ptr->tasks_done++;
 
             if (task.launch_ptr->tasks_done == task.launch_ptr->num_total_tasks) {
-                std::unique_lock<std::mutex> launches_completed_lock(completed_m);
                 launches_completed++;
-                launches_completed_lock.unlock();
 
                 std::unique_lock<std::mutex> deps_lock(deps_m);
                 for (TaskID dep : deps_map.at(task.launch_ptr->id)) {
@@ -168,13 +166,9 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                 }
                 deps_lock.unlock();
                 
-                std::unique_lock<std::mutex> id_lock(id_m);
-                launches_completed_lock.lock();
                 if (bulk_launch_count == launches_completed) {
                     done_cv.notify_one();
                 }
-                launches_completed_lock.unlock();
-                id_lock.unlock();
             }
             queue_cv.notify_all();
         } else if (stop_threads) {
@@ -215,10 +209,8 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                                     const std::vector<TaskID>& deps) {
-    std::unique_lock<std::mutex> id_lock(id_m);
     TaskID id = bulk_launch_count;
     bulk_launch_count++;
-    id_lock.unlock();
 
     BulkLaunch* bulk_launch_ptr = new BulkLaunch();
     std::unique_lock<std::mutex> self_lock(bulk_launch_ptr->m);
@@ -263,20 +255,14 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
-    std::unique_lock<std::mutex> id_lock(id_m);
-    std::unique_lock<std::mutex> launches_completed_lock(completed_m);
     if (bulk_launch_count == launches_completed) {
         return;
     }
-    id_lock.unlock();
-    launches_completed_lock.unlock();
 
     std::unique_lock<std::mutex> done_lock(done_m);
     done_cv.wait(
         done_lock,
         [this] {
-            std::unique_lock<std::mutex> id_lock(id_m);
-            std::unique_lock<std::mutex> launches_completed_lock(completed_m);
             return bulk_launch_count == launches_completed;
         }
     );
