@@ -87,7 +87,7 @@ class YourTask : public IRunnable {
  * `simpleTestAsync` as an example.
  */
 TestResults yourTest(ITaskSystem* t, bool do_async, int num_elements, int num_bulk_task_launches) {
-    int num_tasks = 1000;
+    int num_tasks = 100;
 
     int* input1 = new int[num_elements];
     int* input2 = new int[num_elements];
@@ -155,6 +155,119 @@ TestResults yourTestAsync(ITaskSystem* t) {
     int num_bulk_task_launches = 10;
 
     return yourTest(t, true, num_elements, num_bulk_task_launches);
+}
+
+class PrimeTask : public IRunnable {
+    public:
+        int num_elements_;
+        int* input_array_;
+        bool* output_array_;
+
+        PrimeTask(int num_elements, int* input, bool* output)
+            : num_elements_(num_elements), input_array_(input), output_array_(output) {}
+        ~PrimeTask() {}
+
+        static inline int prime_task(int num) {
+            bool is_prime = true;
+            for (int i=2; i<sqrt(num) + 1; i++) {
+                if (num % i == 0) {
+                    is_prime = false;
+                    break;
+                }
+            }
+
+            return is_prime;
+        }
+
+        void runTask(int task_id, int num_total_tasks) {
+            int elements_per_task = (num_elements_ + num_total_tasks-1) / num_total_tasks;
+            int start_el = elements_per_task * task_id;
+            int end_el = std::min(start_el + elements_per_task, num_elements_);
+
+            for (int i = start_el; i < end_el; i++) {
+                output_array_[i] = prime_task(input_array_[i]);
+            }
+        }
+};
+/*
+ * Implement your test here. Call this function from a wrapper that passes in
+ * do_async and num_elements. See `simpleTest`, `simpleTestSync`, and
+ * `simpleTestAsync` as an example.
+ */
+TestResults primeTest(ITaskSystem* t, bool do_async, int num_elements, int num_bulk_task_launches) {
+    int num_tasks = 100;
+
+    int* input = new int[num_elements];
+    bool* output = new bool[num_elements * num_bulk_task_launches];
+    bool* true_output = new bool[num_elements];
+
+    for (int i=0; i<num_elements; i++) {
+        input[i] = i+1;
+        true_output[i] = PrimeTask::prime_task(i+1);
+
+        for (int j=0; j<num_bulk_task_launches; j++) {
+            output[num_elements*j + i] = false;
+        }
+    }
+
+    std::vector<PrimeTask*> runnables(num_bulk_task_launches);
+    for (int j=0; j<num_bulk_task_launches; j++) {
+        runnables[j] = new PrimeTask(num_elements, input, &output[num_elements*j]);
+    }
+
+    // Run the test
+    double start_time = CycleTimer::currentSeconds();
+    TaskID prev_task_id;
+    std::vector<TaskID> total_deps;
+    for (int i=0; i<num_bulk_task_launches; i++) {
+        if (do_async) {
+            std::vector<TaskID> deps(total_deps);
+            prev_task_id = t->runAsyncWithDeps(runnables[i], num_tasks, deps);
+            total_deps.push_back(prev_task_id);
+        } else {
+            t->run(runnables[i], num_tasks);
+        }
+    }
+    if (do_async) t->sync();
+    double end_time = CycleTimer::currentSeconds();
+
+    // Correctness validation
+    TestResults results;
+    results.passed = true;
+
+    for (int i=0; i<num_elements; i++) {
+        for (int j=0; j<num_bulk_task_launches; j++) {
+            if (output[num_elements*j + i] != true_output[i]) {
+                results.passed = false;
+                printf("%d: %d expected=%d\n", i, output[num_elements*j + i], true_output[i]);
+                break;
+            }
+        }
+
+        if (!results.passed) {
+            break;
+        }
+    }
+    results.time = end_time - start_time;
+
+    delete [] input;
+    delete [] output;
+
+    return results;
+}
+
+TestResults primeTestSync(ITaskSystem* t) {
+    int num_elements = 100000;
+    int num_bulk_task_launches = 10;
+
+    return primeTest(t, false, num_elements, num_bulk_task_launches);
+}
+
+TestResults primeTestAsync(ITaskSystem* t) {
+    int num_elements = 100000;
+    int num_bulk_task_launches = 10;
+
+    return primeTest(t, true, num_elements, num_bulk_task_launches);
 }
 
 /*

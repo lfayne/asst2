@@ -49,13 +49,15 @@ ITaskSystem *selectTaskSystemRefImpl(int num_threads, TaskSystemType type) {
 
 int main(int argc, char** argv)
 {
-    const int n_tests = 33;
+    const int n_tests = 35;
     int num_threads = DEFAULT_NUM_THREADS;
     int num_timing_iterations = DEFAULT_NUM_TIMING_ITERATIONS;
 
     TestResults (*test[n_tests])(ITaskSystem*) = {
         yourTestSync,
         yourTestAsync,
+        primeTestSync,
+        primeTestAsync,
         simpleTestSync,
         simpleTestAsync,
         pingPongEqualTest,
@@ -90,6 +92,8 @@ int main(int argc, char** argv)
     std::string test_names[n_tests] = {
         "your_test_sync",
         "your_test_async",
+        "prime_test_sync",
+        "prime_test_async",
         "simple_test_sync",
         "simple_test_async",
         "ping_pong_equal",
