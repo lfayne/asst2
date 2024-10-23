@@ -62,9 +62,24 @@ typedef struct {
 */
 class YourTask : public IRunnable {
     public:
-        YourTask() {}
+        int num_elements_;
+        int* input_array_1_;
+        int* input_array_2_;
+        int* output_array_;
+
+        YourTask(int num_elements, int* input1, int* input2, int* output)
+            : num_elements_(num_elements), input_array_1_(input1), input_array_2_(input2), output_array_(output) {}
         ~YourTask() {}
-        void runTask(int task_id, int num_total_tasks) {}
+
+        void runTask(int task_id, int num_total_tasks) {
+            int elements_per_task = (num_elements_ + num_total_tasks-1) / num_total_tasks;
+            int start_el = elements_per_task * task_id;
+            int end_el = std::min(start_el + elements_per_task, num_elements_);
+
+            for (int i = start_el; i < end_el; i++) {
+                output_array_[i] = input_array_1_[i] + input_array_2_[i];
+            }
+        }
 };
 /*
  * Implement your test here. Call this function from a wrapper that passes in
@@ -72,45 +87,74 @@ class YourTask : public IRunnable {
  * `simpleTestAsync` as an example.
  */
 TestResults yourTest(ITaskSystem* t, bool do_async, int num_elements, int num_bulk_task_launches) {
-    // TODO: initialize your input and output buffers
-    int* output = new int[num_elements];
+    int num_tasks = 1000;
 
-    // TODO: instantiate your bulk task launches
+    int* input1 = new int[num_elements];
+    int* input2 = new int[num_elements];
+    int* output = new int[num_elements * num_bulk_task_launches];
+
+    for (int i=0; i<num_elements; i++) {
+        input1[i] = i;
+        input2[i] = num_elements - i;
+
+        for (int j=0; j<num_bulk_task_launches; j++) {
+            output[num_elements*j + i] = 0;
+        }
+    }
+
+    std::vector<YourTask*> runnables(num_bulk_task_launches);
+    for (int j=0; j<num_bulk_task_launches; j++) {
+        runnables[j] = new YourTask(num_elements, input1, input2, &output[num_elements*j]);
+    }
 
     // Run the test
     double start_time = CycleTimer::currentSeconds();
-    if (do_async) {
-        // TODO:
-        // initialize dependency vector
-        // make calls to t->runAsyncWithDeps and push TaskID to dependency vector
-        // t->sync() at end
-    } else {
-        // TODO: make calls to t->run
+    TaskID prev_task_id;
+    std::vector<TaskID> total_deps;
+    for (int i=0; i<num_bulk_task_launches; i++) {
+        if (do_async) {
+            std::vector<TaskID> deps(total_deps);
+            prev_task_id = t->runAsyncWithDeps(runnables[i], num_tasks, deps);
+            total_deps.push_back(prev_task_id);
+        } else {
+            t->run(runnables[i], num_tasks);
+        }
     }
+    if (do_async) t->sync();
     double end_time = CycleTimer::currentSeconds();
 
     // Correctness validation
     TestResults results;
     results.passed = true;
 
-    for (int i=0; i<num_elements; i++) {
-        int value = 0; // TODO: initialize value
-        for (int j=0; j<num_bulk_task_launches; j++) {
-            // TODO: update value as expected
-        }
-
-        int expected = value;
-        if (output[i] != expected) {
+    for (int i=0; i<num_elements*num_bulk_task_launches; i++) {
+        if (output[i] != num_elements) {
             results.passed = false;
-            printf("%d: %d expected=%d\n", i, output[i], expected);
+            printf("%d: %d expected=%d\n", i, output[i], num_elements);
             break;
         }
     }
     results.time = end_time - start_time;
 
+    delete [] input1;
+    delete [] input2;
     delete [] output;
 
     return results;
+}
+
+TestResults yourTestSync(ITaskSystem* t) {
+    int num_elements = 100000;
+    int num_bulk_task_launches = 10;
+
+    return yourTest(t, false, num_elements, num_bulk_task_launches);
+}
+
+TestResults yourTestAsync(ITaskSystem* t) {
+    int num_elements = 100000;
+    int num_bulk_task_launches = 10;
+
+    return yourTest(t, true, num_elements, num_bulk_task_launches);
 }
 
 /*
