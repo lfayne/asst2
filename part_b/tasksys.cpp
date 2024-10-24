@@ -169,7 +169,8 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                     deps_lock.unlock();
                     
                     if (bulk_launch_count == launches_completed) {
-                        done_cv.notify_one();
+                        std::unique_lock<std::mutex> done_lock(done_m);
+                        done_cv.notify_all();
                     }
                 });
             }
