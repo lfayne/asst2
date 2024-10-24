@@ -139,6 +139,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
             work_queue.pop();
             work_lock.unlock();
             
+            //task.launch_ptr->tasks_started++;
             task.runnable->runTask(task.task_num, task.num_total_tasks);
             // std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
             task.launch_ptr->tasks_done++;
@@ -152,6 +153,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                     std::unique_lock<std::mutex> deps_lock(deps_m);
                     for (TaskID dep : deps_map.at(task.launch_ptr->id)) {
                         BulkLaunch* new_launch = id_to_ptr[dep];
+                        std::unique_lock<std::mutex> new_launch_lock(new_launch->m);
                         new_launch->deps.erase(task.launch_ptr->id);
 
                         if (new_launch->deps.empty()) {
@@ -166,6 +168,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                             }
                             work_lock.unlock();
                         }
+                        new_launch_lock.unlock();
                     }
                     deps_lock.unlock();
                     
@@ -176,10 +179,10 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                     std::cout << task.launch_ptr->id << "\n" << std::flush; 
                 });
             }
-            queue_cv.notify_all();
         } else if (stop_threads) {
             return;
         }
+        queue_cv.notify_all();
     }
 }
 
@@ -222,13 +225,14 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     std::unique_lock<std::mutex> self_lock(bulk_launch_ptr->m);
     bulk_launch_ptr->runnable = runnable;
     bulk_launch_ptr->tasks_done = 0;
+    bulk_launch_ptr->tasks_started = 0;
     bulk_launch_ptr->num_total_tasks = num_total_tasks;
     bulk_launch_ptr->deps = std::set<TaskID> (deps.begin(), deps.end());
     bulk_launch_ptr->id = id;
 
     std::unique_lock<std::mutex> deps_lock(deps_m);
+    id_to_ptr.insert({id, bulk_launch_ptr});
     if (!deps_map.count(id)) {
-        id_to_ptr.insert({id, bulk_launch_ptr});
         deps_map.insert({id, std::vector<TaskID>()});
     }
     
@@ -240,7 +244,9 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
             deps_map.at(dep).push_back(id);
 
             if (id_to_ptr.count(dep) && id_to_ptr[dep]->tasks_done == id_to_ptr[dep]->num_total_tasks) {
-                 bulk_launch_ptr->deps.erase(dep);
+                std::cout << "Theory " << id << " " << dep << "\n" << std::flush;
+                //deps_cv.wait();
+                bulk_launch_ptr->deps.erase(dep);
             }
         }
     }
@@ -277,7 +283,8 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
         done_lock,
         [this] {
             std::cout << "Checking " << bulk_launch_count << "\n" << std::flush; 
-            std::cout << "Launches completed" << launches_completed << "\n" << std::flush;
+            std::cout << "Launches completed " << launches_completed << "\n" << std::flush;
+            std::cout << "Work queue size " << work_queue.size() << "\n" << std::flush;
             queue_cv.notify_all();
             return bulk_launch_count == launches_completed;
         }
