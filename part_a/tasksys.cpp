@@ -229,6 +229,8 @@ void threadSpinSleep(
             tasks_done_lock.unlock();
             done_cv->notify_one();
         } else if (*delete_threads) {
+            work_lock.unlock();
+            queue_cv->notify_all();
             return;
         }
     }
