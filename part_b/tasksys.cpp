@@ -173,13 +173,13 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                         done_cv.notify_all();
                     }
                 });
+                queue_cv.notify_all();
             }
         } else if (stop_threads) {
             work_lock.unlock();
             queue_cv.notify_all();
             return;
         }
-        queue_cv.notify_all();
     }
 }
 
@@ -187,6 +187,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     this->num_threads = num_threads;
     this->threads = new std::thread[num_threads]();
     this->stop_threads = false;
+    launches_completed = 0;
+    bulk_launch_count = 0;
 
     for (int i=0; i < this->num_threads; i++) {
         this->threads[i] = std::thread(
@@ -272,7 +274,6 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     done_cv.wait(
         done_lock,
         [this] {
-            queue_cv.notify_all();
             return bulk_launch_count == launches_completed;
         }
     );
