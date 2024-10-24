@@ -216,7 +216,6 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                                     const std::vector<TaskID>& deps) {
-    std::unique_lock<std::mutex> deps_lock(deps_m);
     TaskID id = bulk_launch_count;
     bulk_launch_count++;
 
@@ -227,6 +226,8 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     bulk_launch_ptr->num_total_tasks = num_total_tasks;
     bulk_launch_ptr->deps = std::set<TaskID> (deps.begin(), deps.end());
     bulk_launch_ptr->id = id;
+
+    std::unique_lock<std::mutex> deps_lock(deps_m);
 
     id_to_ptr.insert({id, bulk_launch_ptr});
     if (!deps_map.count(id)) {
@@ -245,6 +246,8 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
             }
         }
     }
+
+    deps_lock.unlock();
     
     if (bulk_launch_ptr->deps.empty()) {
         std::unique_lock<std::mutex> work_lock(work_m);
