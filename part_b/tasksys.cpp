@@ -131,7 +131,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
         std::unique_lock<std::mutex> work_lock(work_m);
         queue_cv.wait(
             work_lock,
-            [this] { return stop_threads || !(bulk_launch_count == launches_completed); }
+            [this] { return stop_threads || !work_queue.empty(); }
         );
 
         if (!work_queue.empty()) {
@@ -145,8 +145,8 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
             // launch_lock.unlock();
 
             if (task.launch_ptr->tasks_done == task.launch_ptr->num_total_tasks) {
-                std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m, std::defer_lock);
-                if (launch_lock.try_lock() && !task.launch_ptr->done) {
+                std::call_once(task.launch_ptr->done, [this, task](){
+                    std::cout << task.launch_ptr->id << "\n" << std::flush; 
                     launches_completed++;
 
                     std::unique_lock<std::mutex> deps_lock(deps_m);
@@ -155,7 +155,7 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                         new_launch->deps.erase(task.launch_ptr->id);
 
                         if (new_launch->deps.empty()) {
-                            work_lock.lock();
+                            std::unique_lock<std::mutex> work_lock(work_m);
                             for (int i=0; i<new_launch->num_total_tasks; i++) {
                                 Work task;
                                 task.runnable = new_launch->runnable;
@@ -170,10 +170,11 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                     deps_lock.unlock();
                     
                     if (bulk_launch_count == launches_completed) {
+                        std::cout << "hello california!\n" << std::flush; 
                         done_cv.notify_one();
                     }
-                    task.launch_ptr->done = true;
-                }
+                    std::cout << task.launch_ptr->id << "\n" << std::flush; 
+                });
             }
             queue_cv.notify_all();
         } else if (stop_threads) {
@@ -230,9 +231,22 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
         id_to_ptr.insert({id, bulk_launch_ptr});
         deps_map.insert({id, std::vector<TaskID>()});
     }
-    deps_lock.unlock();
     
-    if (deps.empty()) {
+    if (!deps.empty()) {
+        for (TaskID dep : deps) {
+            if (!deps_map.count(dep)) {
+                deps_map.insert({dep, std::vector<TaskID>()});
+            }
+            deps_map.at(dep).push_back(id);
+
+            if (id_to_ptr.count(dep) && id_to_ptr[dep]->tasks_done == id_to_ptr[dep]->num_total_tasks) {
+                 bulk_launch_ptr->deps.erase(dep);
+            }
+        }
+    }
+    
+    if (bulk_launch_ptr->deps.empty()) {
+        deps_lock.unlock();
         std::unique_lock<std::mutex> work_lock(work_m);
         for (int i=0; i<num_total_tasks; i++) {
             Work task;
@@ -244,17 +258,12 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
         }
         work_lock.unlock();
     } else {
-        deps_lock.lock();
-        for (TaskID dep : deps) {
-            if (!deps_map.count(dep)) {
-                deps_map.insert({dep, std::vector<TaskID>()});
-            }
-            deps_map.at(dep).push_back(id);
-        }
         deps_lock.unlock();
     }
-    queue_cv.notify_all();
 
+    self_lock.unlock();
+    queue_cv.notify_all();
+    
     return id;
 }
 
@@ -267,9 +276,14 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     done_cv.wait(
         done_lock,
         [this] {
+            std::cout << "Checking " << bulk_launch_count << "\n" << std::flush; 
+            std::cout << "Launches completed" << launches_completed << "\n" << std::flush;
+            queue_cv.notify_all();
             return bulk_launch_count == launches_completed;
         }
     );
+    
+    std::cout << "DONE\n" << std::flush; 
 
     return;
 }
