@@ -10,6 +10,7 @@
 #include <set>
 #include <map>
 #include <unistd.h>
+#include <atomic>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
