@@ -64,7 +64,6 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 
 struct BulkLaunch {
   IRunnable* runnable;
-  std::atomic_int tasks_started;
   std::atomic_int tasks_done;
   int num_total_tasks;
   std::set<TaskID> deps;
@@ -102,7 +101,6 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::queue<Work> work_queue;
         std::mutex work_m;
         std::condition_variable queue_cv;
-        std::condition_variable deps_cv;
         std::condition_variable done_cv;
         bool stop_threads;
         std::atomic_int bulk_launch_count;

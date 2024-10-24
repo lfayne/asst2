@@ -139,11 +139,8 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
             work_queue.pop();
             work_lock.unlock();
             
-            //task.launch_ptr->tasks_started++;
             task.runnable->runTask(task.task_num, task.num_total_tasks);
-            // std::unique_lock<std::mutex> launch_lock(task.launch_ptr->m);
             task.launch_ptr->tasks_done++;
-            // launch_lock.unlock();
 
             if (task.launch_ptr->tasks_done == task.launch_ptr->num_total_tasks) {
                 std::call_once(task.launch_ptr->done, [this, task](){
@@ -177,6 +174,8 @@ void TaskSystemParallelThreadPoolSleeping::threadSpinSleep() {
                 });
             }
         } else if (stop_threads) {
+            work_lock.unlock();
+            queue_cv.notify_all();
             return;
         }
         queue_cv.notify_all();
@@ -195,14 +194,13 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
-    // TODO: Deallocate BulkLaunch objs.
     stop_threads = true;
     queue_cv.notify_all();
-    for (const auto& pair : id_to_ptr) {
-        delete pair.second;
-    }
     for (int i = 0; i < this->num_threads; i++) {
         threads[i].join();
+    }
+    for (const auto& pair : id_to_ptr) {
+        delete pair.second;
     }
     delete[] threads;
 }
@@ -223,7 +221,6 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     std::unique_lock<std::mutex> self_lock(bulk_launch_ptr->m);
     bulk_launch_ptr->runnable = runnable;
     bulk_launch_ptr->tasks_done = 0;
-    bulk_launch_ptr->tasks_started = 0;
     bulk_launch_ptr->num_total_tasks = num_total_tasks;
     bulk_launch_ptr->deps = std::set<TaskID> (deps.begin(), deps.end());
     bulk_launch_ptr->id = id;
@@ -274,23 +271,9 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     done_cv.wait(
         done_lock,
         [this] {
-            std::cout << "Checking " << bulk_launch_count << "\n" << std::flush; 
-            std::cout << "Launches completed " << launches_completed << "\n" << std::flush;
-            std::cout << "Work queue size " << work_queue.size() << "\n" << std::flush;
             queue_cv.notify_all();
             return bulk_launch_count == launches_completed;
         }
     );
-    
-    std::cout << "DONE\n" << std::flush; 
-
     return;
 }
-
-/* 
-Map to store TaskID : queue of work (also consider deps)
-Set for TaskIDs completed
-Sync only called after Async Runs have been called
-Threads spin and look in normal work queue, else look in TaskMap to find more pieces of work to add to queue
-Possibly more maps for task done vs. total tasks per bulk launch
-*/ 
